@@ -1,10 +1,18 @@
-package workshop.falsesharing;
+package falsesharing;
+
 
 import java.util.function.LongFunction;
 
-public class Test {
+public class FalseSharingExample {
+    public static void main(String[] args) {
 
-    public static void run(String prefix, Counter counter1, Counter counter2) {
+        Counter counter1 = new Counter();
+
+        run("false sharing", counter1, counter1); // twice counter1
+        run("no false sharing", new Counter(), new Counter()); // different instances passed
+    }
+
+    private static void run(String prefix, Counter counter1, Counter counter2) {
         long iterations = 1_000_000_000;
         LongFunction<String> message = time -> prefix + " total time: " + time;
 

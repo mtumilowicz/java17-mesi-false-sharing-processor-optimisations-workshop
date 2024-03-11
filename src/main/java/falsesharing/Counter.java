@@ -1,4 +1,4 @@
-package workshop.falsesharing;
+package falsesharing;
 
 
 public class Counter {

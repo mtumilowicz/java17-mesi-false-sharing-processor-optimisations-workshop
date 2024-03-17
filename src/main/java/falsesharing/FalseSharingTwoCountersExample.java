@@ -3,7 +3,14 @@ package falsesharing;
 
 import java.util.function.LongFunction;
 
-public class FalseSharingExample {
+class Counter {
+
+    public volatile long count1 = 0;
+    public volatile long count2 = 0;
+
+}
+
+public class FalseSharingTwoCountersExample {
     public static void main(String[] args) {
 
         Counter counter1 = new Counter();

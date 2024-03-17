@@ -24,25 +24,47 @@ java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
 
 
 # false sharing
-* occurs when two threads running on two different CPUs write to two different variables which
-happen to be stored within the same CPU cache line
-    * first thread modifies one of the variables => cache line is invalidated in all CPU caches
-        * other CPUs need to reload the content of the invalidated cache line
-            * even if they don't really need the variable that was modified within that cache line
-* False sharing means that two (or more) CPUs are writing to variables stored within the same cache line, but each CPU doesn't really rely on the value written by the other CPU.
-* solution: change data structures so the independent variables used by the CPUs are no longer stored within the same cache line
-    * Java 8 introduced `sun.misc.Contended` annotation to prevent false sharing
-        * Java 9 repackaged it under the `jdk.internal.vm.annotation`
-        * by default adds 128 bytes of padding
-            * cache line size in many modern processors is around 64/128 bytes
-            * configurable through the `-XX:ContendedPaddingWidth`
-        * annotated field => JVM will add some paddings around it
-            * sure that the field resides on its own cache line
-        * annotated class => HotSopt JVM will add the same padding before all the fields
-        * `-XX:-RestrictContended`
-            * used to disable the automatic padding of fields marked with the `@Contended` annotation
-        * used by concurrentHashMap: https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
-        * ForkJoinPool: https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
+* true sharing
+    * CPUs are writing to the same variables stored within the same cache line
+* CPUs are writing to independent variables stored within the same cache line
+    * independent = each CPU doesn't really rely on the values written by the other CPU
+    * steps
+        1. first thread modifies the variables
+            * cache line is invalidated in all CPU caches
+        1. other CPUs reload the content of the invalidated cache line
+            * even if they don't need the variable that was modified by first thread
+* essence of problems with concurrent programming
+    * more processors, more power, more electricity consumption but slower than single thread
+* solution on JVM
+    * don't use volatile
+        * write to main memory will be delayed up to very end
+        * assuming that threads are modifying not interlapping set of variables it's OK
+        * example
+            ```
+            private static final int THREADS = 6
+            private static int[] results = new int[THREADS] // each thread has it's own place to accumulate results
+            ```
+            however, if we modify `results` using volatile machinery, we have false sharing
+            ```
+            VH.setVolatile(results, offset, results[offset] + 1)
+            ```
+    * change data structures so the independent variables are no longer stored within the same cache line
+        * `jdk.internal.vm.annotation.Contended`
+            * annotation to prevent false sharing
+            * introduced by Java 8 under `sun.misc` package
+                * repackaged later by Java 9
+            * by default adds 128 bytes of padding
+                * cache line size in many modern processors is around 64/128 bytes
+                * configurable through the `-XX:ContendedPaddingWidth`
+            * annotated field => JVM will add some paddings around it
+            * annotated class => JVM will add the same padding before all the fields
+            * `-XX:-RestrictContended`
+                * disable `@Contended` annotation
+            * use cases
+                * `ConcurrentHashMap`
+                    * https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
+                * `ForkJoinPool`
+                    * https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
 
 # mesi
 * Cache coherence is a concern raised in a multi-core system distributed L1 and L2 caches.
@@ -81,13 +103,7 @@ happen to be stored within the same CPU cache line
     bardzo szybko, bo java opozni zapis do glownej pamieci az do konca
     jesli wymusimy zapis do glownej pamieci: bedzie bardzo wolno
     ```
-  * writer i reader w innych watkach
-    ```
-    tuple { volatile int read; volatile int write; }
 
-    i tylko dwa watki: jeden inrementuje write, a drugi odczytuje read
-    ```
-    jak usuniemy write to bedzie duzo szybciej
 * true sharing: jak watki pracuja na DOKLADNIE tym samym polu
   * false sharing: kiedy operuja na tej samej cache line ale na innych polach
 * the benefits of multithreading can disappear if the threads are

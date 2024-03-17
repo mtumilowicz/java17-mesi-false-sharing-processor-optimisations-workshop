@@ -16,26 +16,33 @@ java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
     * https://stackoverflow.com/questions/10058243/mesi-cache-protocol
     * http://www.edwardbosworth.com/My5155_Slides/Chapter13/CacheCoherency.htm
     * https://fgiesen.wordpress.com/2014/07/07/cache-coherency/
+    * https://github.com/melix/jmh-gradle-plugin
+    * https://chat.openai.com/
 
 
 * true sharing
 
 
 # false sharing
-* False sharing in Java occurs when two threads running on two different CPUs write to two different variables which happen to be stored within the same CPU cache line
-    * When the first thread modifies one of the variables - the whole CPU cache line is invalidated in the CPU caches of the other CPU where the other thread is running
-    * This means, that the other CPUs need to reload the content of the invalidated cache line - even if they don't really need the variable that was modified within that cache line
+* occurs when two threads running on two different CPUs write to two different variables which
+happen to be stored within the same CPU cache line
+    * first thread modifies one of the variables => cache line is invalidated in all CPU caches
+        * other CPUs need to reload the content of the invalidated cache line
+            * even if they don't really need the variable that was modified within that cache line
 * False sharing means that two (or more) CPUs are writing to variables stored within the same cache line, but each CPU doesn't really rely on the value written by the other CPU.
-    * The solution to false sharing is to change your data structures so the independent variables used by the CPUs are no longer stored within the same cache line.
-* Java 8 introduced the sun.misc.Contended annotation (Java 9 repackaged it under the jdk.internal.vm.annotation package) to prevent false sharing.
-    * JVM will add some paddings around the annotated field
-    * This way, it can make sure that the field resides on its own cache line.
-    * if we annotate a whole class with this annotation, the HotSopt JVM will add the same padding before all the fields.
-    * use the -XX:-RestrictContended tuning flag
-    * By default, the @Contended annotation adds 128 bytes of padding. That’s mainly because the cache line size in many modern processors is around 64/128 bytes.
-        * configurable through the -XX:ContendedPaddingWidth tuning flag.
-    * used by concurrentHashMap: https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
-    * ForkJoinPool: https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
+* solution: change data structures so the independent variables used by the CPUs are no longer stored within the same cache line
+    * Java 8 introduced `sun.misc.Contended` annotation to prevent false sharing
+        * Java 9 repackaged it under the `jdk.internal.vm.annotation`
+        * by default adds 128 bytes of padding
+            * cache line size in many modern processors is around 64/128 bytes
+            * configurable through the `-XX:ContendedPaddingWidth`
+        * annotated field => JVM will add some paddings around it
+            * sure that the field resides on its own cache line
+        * annotated class => HotSopt JVM will add the same padding before all the fields
+        * `-XX:-RestrictContended`
+            * used to disable the automatic padding of fields marked with the `@Contended` annotation
+        * used by concurrentHashMap: https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
+        * ForkJoinPool: https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
 
 # mesi
 * Cache coherence is a concern raised in a multi-core system distributed L1 and L2 caches.
@@ -260,3 +267,6 @@ It indicates that this cache line is invalid.
   Firstly, in a multi-core system, getting read access to a cache line involves talking to the other cores, and might cause them to perform memory transactions.
   Writing to a cache line is a multi-step process: before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents (a so-called “Read For Ownership” request).
 * Caches do not respond to bus events immediately. If a bus message triggering a cache line invalidation arrives while the cache is busy doing other things (sending data to the core for example), it might not get processed that cycle. Instead, it will enter a so-called “invalidation queue”, where it sits for a while until the cache has time to process it.
+
+
+# jmh

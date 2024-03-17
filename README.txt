@@ -173,6 +173,7 @@ cache line
       Cache blocks are identified and referenced by their memory tags.
       * In order to maintain coherency, each individual cache must monitor the traffic in cache tags, which corresponds to the blocks being read from and written to the shared primary memory.
       * This is done by a snooping cache (or snoopy cache, after the Peanuts comic strip), which is just another port into the cache memory from the shared bus.
+        ![alt text](img/snoop_tags.png)
 * formal mechanism for controlling cache coherency using snooping techniques
 * acronym stands for modified, exclusive, shared, invalid and refers to the states that cached data can take
 * Transition between the states is controlled by memory accesses and bus snooping activity
@@ -241,11 +242,41 @@ It indicates that this cache line is invalid.
           4.   P1 writes the block back to the share memory and the other processor can access it.
 
 * flow
-    ![alt text](img/cache_coherence.png)
-    ![alt text](img/pt1_exclusive.png)
-    ![alt text](img/pt2_shared.png)
-    ![alt text](img/pt3_modified.png)
-    ![alt text](img/pt4_dirty.png)
+    1. overview of architecture
+        ![alt text](img/architecture_overview.png)
+    1. exclusive
+        ![alt text](img/pt1_exclusive.png)
+        * CPU 1
+            * is the first (and only) processor to request block A from the shared memory.
+            * It issues a BR (Bus Read) for the block and gets its copy.
+                * Neither CPU 2 nor CPU 3 respond to the BR.
+            * The cache line containing block A is marked Exclusive.
+                * Subsequent reads to this block access the cached entry and not the shared memory.
+    1. shared
+        ![alt text](img/pt2_shared.png)
+        * CPU 2 requests the same block A
+        * snoop cache on CPU 1 notes the request and CPU 1 broadcasts “Shared”, announcing that it has a copy of the block
+            * CPU 3 does not respond to the BR.
+        * Both copies of the block are marked as shared.
+            * indicates that the block is in two or more caches for reading and
+              that the copy in the shared primary memory is up to date
+    1. modified
+        ![alt text](img/pt3_modified.png)
+        * CPU 2 writes to the cache line it is holding in its cache
+            * It issues a BU (Bus Upgrade) broadcast, marks the cache line as Modified, and writes the data to the line
+            * CPU 1 responds to the BU by marking the copy in its cache line as Invalid.
+            * CPU 3 does not respond to the BU.
+        * Informally, CPU 2 can be said to “own the cache line”.
+    1. dirty
+        ![alt text](img/pt4_dirty.png)
+        * CPU 3 attempts to read block A from primary memory
+        * CPU 1, the cache line holding that block has been marked as Invalid
+            * CPU 1 does not respond to the BR (Bus Read) request.
+        * CPU 2 has the cache line marked as Modified
+            * It asserts the signal “Dirty” on the bus, writes the data in the cache line back to the shared memory, and marks the line “Shared”.
+            * Informally, CPU 2 asks CPU 3 to wait while it writes back the contents of its modified cache line to the shared primary memory.
+        * CPU 3 waits and then gets a correct copy.
+        * The cache line in each of CPU 2 and CPU 3 is marked as Shared.
 
 * Write-through caches are simpler, but write-back has some advantages: it can filter repeated writes to the same location, and if most of the cache line changes on a write-back, it can issue one large memory transaction instead of several small ones, which is more efficient.
 * Note that the problem really is that we have multiple caches, not that we have multiple cores. We could solve the entire problem by sharing all caches between all cores: there’s only one L1$, and all processors have to share it. Each cycle, the L1$ picks one lucky core that gets to do a memory operation this cycle, and runs it.

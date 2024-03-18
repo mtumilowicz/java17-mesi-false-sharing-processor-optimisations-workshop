@@ -1,4 +1,4 @@
-java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
+# java17-mesi-false-sharing-vectorization-jmh-workshop
 
 * references
     * https://jenkov.com/tutorials/java-concurrency/false-sharing.html
@@ -20,58 +20,15 @@ java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
     * https://chat.openai.com/
 
 
-* true sharing
 
-
-# false sharing
-* true sharing
-    * CPUs are writing to the same variables stored within the same cache line
-* CPUs are writing to independent variables stored within the same cache line
-    * independent = each CPU doesn't really rely on the values written by the other CPU
-    * steps
-        1. first thread modifies the variables
-            * cache line is invalidated in all CPU caches
-        1. other CPUs reload the content of the invalidated cache line
-            * even if they don't need the variable that was modified by first thread
-* essence of problems with concurrent programming
-    * more processors, more power, more electricity consumption but slower than single thread
-* solution on JVM
-    * don't use volatile
-        * write to main memory will be delayed up to very end
-        * assuming that threads are modifying not interlapping set of variables it's OK
-        * example
-            ```
-            private static final int THREADS = 6
-            private static int[] results = new int[THREADS] // each thread has it's own place to accumulate results
-            ```
-            however, if we modify `results` using volatile machinery, we have false sharing
-            ```
-            VH.setVolatile(results, offset, results[offset] + 1)
-            ```
-    * change data structures so the independent variables are no longer stored within the same cache line
-        * `jdk.internal.vm.annotation.Contended`
-            * annotation to prevent false sharing
-            * introduced by Java 8 under `sun.misc` package
-                * repackaged later by Java 9
-            * by default adds 128 bytes of padding
-                * cache line size in many modern processors is around 64/128 bytes
-                * configurable through the `-XX:ContendedPaddingWidth`
-            * annotated field => JVM will add some paddings around it
-            * annotated class => JVM will add the same padding before all the fields
-            * `-XX:-RestrictContended`
-                * disable `@Contended` annotation
-            * use cases
-                * `ConcurrentHashMap`
-                    * https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
-                * `ForkJoinPool`
-                    * https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
-* note that false sharing doesn't cause incorrect results - just a performance hit!
-
-# mesi
+## cache coherence
 * cache coherence
     * concern raised in a multi-core distributed caches
     * when multiple processors are operating on the same or nearby memory locations, they may end up sharing the same cache line
+        * unit of granularity of a cache entry is 64 bytes (512 bits)
+            * even if you read/write 1 byte you're writing 64 bytes
         * it’s essential to keep those overlapping caches in different cores consistent with each other
+            * benefits of multithreading can disappear if the threads are competing for the same cache line
         * there are quite a few protocols to maintain the cache coherency between CPU cores
 * cache write policies
     * write back
@@ -99,21 +56,10 @@ java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
                     * all copies in other caches are invalidated
 
 
-# cache false sharing
-
-* the benefits of multithreading can disappear if the threads are
-competing for the same cache line
-* each core has its own separate l2 cache, but a write by one can possibly
-impact the state of the others
-* each core's L2 cache has 4 states (MESI):
-    * Modified
-        * exclusively owned by that core, and modified (dirty)
-    * Exclusive
-        * exclusively owned by that core, but not modified
-    * Shared
-        * shared read-only with other cores
-    * Invalid
-        * cache line not used
+## MESI protocol
+* when a cache's state is Invalid (I), it will reload that cache the next time it needs
+    to look at a value in it
+        * this is true, even if that value is perfectly current
 * overview
 
     |Step   |cache line A   |cache line B   |
@@ -141,33 +87,17 @@ impact the state of the others
     * event if CoreA and CoreB are writing to separate memory locations in
     in the same cache line the fact that they were the same cache line causes this
     to happen
-* usually cache line has 16 slots, if you use padding you could move a value to the next
-cache line
-    * example: 4 first - XXXX, next 12 - 0000...
-    * padding 7: X - 0000000(7) - X - 0000000(7) and in the next line the same
-* summary
-    * each l2 cache has four states: Modified, Exclusive, Shared, Invalid (MESI)
-    * when a cache's state is Invalid (I), it will reload that cache the next time it needs
-    to look at a value in it
-        * this is true, even if that value is perfectly current
-        * example: modifying array (4 fields, 4 cache slots)
-    * benefits of multithreading can disappear if threads are competing
-    for the same cache line
-* unit of granularity of a cache entry is 64 bytes (512 bits)
-    * even if you read/write 1 byte you're writing 64 bytes
-* false sharing
-    * two cores trying to write to bytes in the same cache-line will trash
-        * example:
-            * Thread 1: data[0] = 'A'
-            * Thread 2: data[7] = 'B'
-        * first thread will try to acquire exclusive ownership of cache line
-        * second thread (on different core) will try to do the same
-        * updates may be lost if writes are not atomic
-        * performance will suffer when cache line repeatedly moved
-        * avoid by padding to at least cacheline size * 2 (128 bytes) for writes
-
-
-# MESI protocol
+* each core has its own separate l2 cache, but a write by one can possibly
+impact the state of the others
+* each core's L2 cache has 4 states (MESI):
+    * Modified
+        * exclusively owned by that core, and modified (dirty)
+    * Exclusive
+        * exclusively owned by that core, but not modified
+    * Shared
+        * shared read-only with other cores
+    * Invalid
+        * cache line not used
 * In modern CPUs (almost) all memory accesses go through the cache hierarchy
     * The CPU core’s load/store (and instruction fetch) units normally can’t even access memory directly – it’s physically impossible
         * they talk to their L1 caches which are supposed to handle it
@@ -309,5 +239,52 @@ It indicates that this cache line is invalid.
   Writing to a cache line is a multi-step process: before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents (a so-called “Read For Ownership” request).
 * Caches do not respond to bus events immediately. If a bus message triggering a cache line invalidation arrives while the cache is busy doing other things (sending data to the core for example), it might not get processed that cycle. Instead, it will enter a so-called “invalidation queue”, where it sits for a while until the cache has time to process it.
 
+## false sharing
+* true sharing
+    * CPUs are writing to the same variables stored within the same cache line
+* CPUs are writing to independent variables stored within the same cache line
+    * independent = each CPU doesn't really rely on the values written by the other CPU
+    * steps
+        1. first thread modifies the variables
+            * cache line is invalidated in all CPU caches
+        1. other CPUs reload the content of the invalidated cache line
+            * even if they don't need the variable that was modified by first thread
+* essence of problems with concurrent programming
+    * more processors, more power, more electricity consumption but slower than single thread
+* solution: padding
+    * usually cache line has 16 slots
+        * if you use padding you could move a value to the next cache line
+    * JVM
+        * don't use volatile
+            * write to main memory will be delayed up to very end
+            * assuming that threads are modifying not interlapping set of variables it's OK
+            * example
+                ```
+                private static final int THREADS = 6
+                private static int[] results = new int[THREADS] // each thread has it's own place to accumulate results
+                ```
+                however, if we modify `results` using volatile machinery, we have false sharing
+                ```
+                VH.setVolatile(results, offset, results[offset] + 1)
+                ```
+        * change data structures so the independent variables are no longer stored within the same cache line
+            * `jdk.internal.vm.annotation.Contended`
+                * annotation to prevent false sharing
+                * introduced by Java 8 under `sun.misc` package
+                    * repackaged later by Java 9
+                * by default adds 128 bytes of padding
+                    * cache line size in many modern processors is around 64/128 bytes
+                    * configurable through the `-XX:ContendedPaddingWidth`
+                * annotated field => JVM will add some paddings around it
+                * annotated class => JVM will add the same padding before all the fields
+                * `-XX:-RestrictContended`
+                    * disable `@Contended` annotation
+                * use cases
+                    * `ConcurrentHashMap`
+                        * https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
+                    * `ForkJoinPool`
+                        * https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
+* note that false sharing doesn't cause incorrect results - just a performance hit
+    * updates may be lost if writes are not atomic
 
-# jmh
+## jmh

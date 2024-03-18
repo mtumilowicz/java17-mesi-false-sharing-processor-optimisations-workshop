@@ -65,47 +65,42 @@ java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop
                     * https://github.com/openjdk/jdk/blob/f29d1d172b82a3481f665999669daed74455ae55/src/java.base/share/classes/java/util/concurrent/ConcurrentHashMap.java#L2565
                 * `ForkJoinPool`
                     * https://github.com/openjdk/jdk/blob/1e8806fd08aef29029878a1c80d6ed39fdbfe182/src/java.base/share/classes/java/util/concurrent/ForkJoinPool.java#L774
+* note that false sharing doesn't cause incorrect results - just a performance hit!
 
 # mesi
-* Cache coherence is a concern raised in a multi-core system distributed L1 and L2 caches.
-* There two main cache write policies.
-  Write back : Write operations are usually made only to the cache. Main memory is only updated when the corresponding cache line is flushed from the cache.
-  Write through : All write operations are made to main memory as well as to the cache, ensuring that main memory is always valid.
-* From the above description it is clear that Write back policy results in inconsistency.
-    *  If two caches contain the same line, and the line is updated in one cache, the other cache will unknowingly have an invalid value.
-* * But if we think deeper even the Write through policy also has consistency issues. Even though memory is updated inconsistency can occur unless other cache monitor the memory traffic or receive some direct notification of the update.
-* Write Through (WT) Protocol
-  There are two fundamental implementations of the WT protocol.
-  Write through with update protocol
-    * When a processor writes a new value into its cache, the new value is also written into the memory module that holds the cache block being changed. Some copies of this block may exist in other caches, these copies must be updated to reflect the change caused by the write operation.
-      We update the other cache copies by doing a broadcast with the updated data to all processor modules in the system. Each processor module receives the broadcast data, it updates the contents of the affected cache block if this block is present in its cache.
-  Write through with invalidation of copies
-    * When a processor writes a new value into its cache, this value is written into the memory and all other copies in other caches are invalidated. This also done by broadcasting the invalidation request through the system. All caches receives this invalidation request and the cache which contains the updated data flushes its cache line.
-
-* When multiple processors are operating on the same or nearby memory locations, they may end up sharing the same cache line.
-    * In such situations, it’s essential to keep those overlapping caches in different cores consistent with each other.
-    * There are quite a few protocols to maintain the cache coherency between CPU cores
-* In the MESI protocol, each cache line can be in one of these four distinct states: Modified, Exclusive, Shared, or Invalid.
-* pending writes to the MM (why pending? : when no one reads the data, the write can happen faster in the respective cache, & there is no need to write MM, which is very slower compared to the cache!!
-
+* cache coherence
+    * concern raised in a multi-core distributed caches
+    * when multiple processors are operating on the same or nearby memory locations, they may end up sharing the same cache line
+        * it’s essential to keep those overlapping caches in different cores consistent with each other
+        * there are quite a few protocols to maintain the cache coherency between CPU cores
+* cache write policies
+    * write back
+        * write operations are usually made only to the cache
+        * main memory is only updated when the corresponding cache line is flushed from the cache
+        * results in inconsistency
+            * example: if two caches contain the same line, and the line is updated in one cache, the other cache will unknowingly have an invalid value
+        * one fundamental implementation
+            * MESI
+                * each cache line can be in one of these four distinct states: Modified, Exclusive, Shared, or Invalid
+                * key feature: delayed flush to main memory
+                    * example: when no one reads the data there is no need to write main memory
+                        * better to write only to cache as it is much faster
+    * write through
+        * all write operations are made to main memory as well as to the cache
+        * ensures that main memory is always valid
+        * has consistency issues
+            * occur unless other cache monitor the memory traffic or receive some direct notification of the update.
+        * two fundamental implementations
+            1. with update protocol
+                * after write to main memory message with the updated data is broadcast to all processor modules in the system
+                    * each processor updates the contents of the affected cache block if this block is present in its cache
+            1. with invalidation of copies
+                * after write to main memory invalidation request is broadcast through the system
+                    * all copies in other caches are invalidated
 
 
 # cache false sharing
-* example: https://www.youtube.com/watch?v=D96mSWuU-xc
-  * przydzielenie oddzielnego miejsca dla resultow per watek
-    ```
-    private static final ARRAY_A = new int[SIZE];
-    private static int[] results = new int[THREADS]; // tu jest zapis wynikow
 
-    zadanie: policzyc ile jest parzystych w ARRAY_A wielowatkowo
-
-    jesli uzyjemy atomica do incrementacji: bedzie wolno
-    bardzo szybko, bo java opozni zapis do glownej pamieci az do konca
-    jesli wymusimy zapis do glownej pamieci: bedzie bardzo wolno
-    ```
-
-* true sharing: jak watki pracuja na DOKLADNIE tym samym polu
-  * false sharing: kiedy operuja na tej samej cache line ale na innych polach
 * the benefits of multithreading can disappear if the threads are
 competing for the same cache line
 * each core has its own separate l2 cache, but a write by one can possibly
@@ -146,7 +141,6 @@ impact the state of the others
     * event if CoreA and CoreB are writing to separate memory locations in
     in the same cache line the fact that they were the same cache line causes this
     to happen
-* note that False Sharing doesn't cause incorrect results - just a performance hit!
 * usually cache line has 16 slots, if you use padding you could move a value to the next
 cache line
     * example: 4 first - XXXX, next 12 - 0000...

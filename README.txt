@@ -19,17 +19,47 @@
     * https://github.com/melix/jmh-gradle-plugin
     * https://chat.openai.com/
 
+## preface
 
+## prerequisite
+* cache hit = processor accesses its private cache and finds the addressed item already in the cache
+    * otherwise - the access is a cache miss
 
 ## cache coherence
+* in modern CPUs (almost) all memory accesses go through the cache hierarchy
+    * CPU core’s load/store (and instruction fetch) units normally can’t even access memory directly
+        * physically impossible
+            ![alt text](img/cache_coherence.png)
+        * they talk to their L1 caches
+            * at this point, there’s generally more cache levels involved
+            * L1 cache doesn’t talk to memory directly anymore, it talks to a L2 cache – which in turns talks to memory
+                * or maybe to a L3 cache
+        * caches are organized into “lines”, corresponding to aligned blocks of memory
+            * 32 bytes (older ARMs, 90s/early 2000s x86s/PowerPCs)
+            * 64 bytes (newer ARMs and x86s)
+            * 128 bytes (newer Power ISA machines)
 * cache coherence
     * concern raised in a multi-core distributed caches
     * when multiple processors are operating on the same or nearby memory locations, they may end up sharing the same cache line
         * unit of granularity of a cache entry is 64 bytes (512 bits)
             * even if you read/write 1 byte you're writing 64 bytes
-        * it’s essential to keep those overlapping caches in different cores consistent with each other
+        * it’s essential to keep those overlapping caches consistent with each other
             * benefits of multithreading can disappear if the threads are competing for the same cache line
         * there are quite a few protocols to maintain the cache coherency between CPU cores
+        * general approach
+            * problem is not unique to parallel processing systems
+                * strong resemblance to the "lost update" problem
+            * each line in a cache is identified and referenced by a cache tag (block number)
+                * allows the determination of the primary memory address associated with each element in the cache
+            * each individual cache must monitor the traffic in cache tags
+                * corresponds to the blocks being read from and written to the shared primary memory
+                * done by a snooping cache (or snoopy cache, after the Peanuts comic strip)
+                    ![alt text](img/snoop_tags.png)
+                * caches do not respond to bus events immediately
+                    * reason: cache is busy doing other things (sending data to the core for example)
+                        * it might not get processed that cycle
+                    * invalidation queue
+                        * place where bus message triggering a cache line invalidation sits for a while until the cache has time to process it
 * cache write policies
     * write back
         * write operations are usually made only to the cache
@@ -54,9 +84,23 @@
             1. with invalidation of copies
                 * after write to main memory invalidation request is broadcast through the system
                     * all copies in other caches are invalidated
+    * write-through caches are simpler, but write-back has some advantages
+        * it can filter repeated writes to the same location
+            * most of the cache line changes on a write-back => can issue one large memory transaction instead of several small ones
+                * more efficient
 
 
 ## MESI protocol
+
+* As a software developer, you’ll get pretty far knowing only two things:
+
+  Firstly, in a multi-core system, getting read access to a cache line involves talking to the other cores, and might cause them to perform memory transactions.
+  Writing to a cache line is a multi-step process: before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents (a so-called “Read For Ownership” request).
+
+* formal mechanism for controlling cache coherency using snooping techniques
+    * most widely used cache coherence protocol
+* transition between the states is controlled by memory accesses and bus snooping activity
+
 * when a cache's state is Invalid (I), it will reload that cache the next time it needs
     to look at a value in it
         * this is true, even if that value is perfectly current
@@ -87,8 +131,7 @@
     * event if CoreA and CoreB are writing to separate memory locations in
     in the same cache line the fact that they were the same cache line causes this
     to happen
-* each core has its own separate l2 cache, but a write by one can possibly
-impact the state of the others
+
 * each core's L2 cache has 4 states (MESI):
     * Modified
         * exclusively owned by that core, and modified (dirty)
@@ -98,26 +141,9 @@ impact the state of the others
         * shared read-only with other cores
     * Invalid
         * cache line not used
-* In modern CPUs (almost) all memory accesses go through the cache hierarchy
-    * The CPU core’s load/store (and instruction fetch) units normally can’t even access memory directly – it’s physically impossible
-        * they talk to their L1 caches which are supposed to handle it
-        * At this point, there’s generally more cache levels involved;
-            * this means the L1 cache doesn’t talk to memory directly anymore, it talks to a L2 cache – which in turns talks to memory. Or maybe to a L3 cache
-    * Caches are organized into “lines”, corresponding to aligned blocks of either 32 (older ARMs, 90s/early 2000s x86s/PowerPCs), 64 (newer ARMs and x86s) or 128 (newer Power ISA machines) bytes of memory
-* Cache Coherence Problem
-    * In multiprocessor system where many processes needs a copy of same memory block, the maintenance of consistency among these copies raises a problem
-    ![alt text](img/cache_coherence.png)
-    * We first note that this problem is not unique to parallel processing systems.  Those students who have experience with database design will note the strong resemblance to the “lost update” problem.
-    * Each line in a cache is identified by a cache tag (block number), which allows the determination of the primary memory address associated with each element in the cache.
 
-      Cache blocks are identified and referenced by their memory tags.
-      * In order to maintain coherency, each individual cache must monitor the traffic in cache tags, which corresponds to the blocks being read from and written to the shared primary memory.
-      * This is done by a snooping cache (or snoopy cache, after the Peanuts comic strip), which is just another port into the cache memory from the shared bus.
-        ![alt text](img/snoop_tags.png)
-* formal mechanism for controlling cache coherency using snooping techniques
-* acronym stands for modified, exclusive, shared, invalid and refers to the states that cached data can take
-* Transition between the states is controlled by memory accesses and bus snooping activity
-* most widely used cache coherence protocol
+
+
 * On a cache miss, the cache still needs to writeback data to memory if it is in the modified state.
 * Let's processor A has that modified line. Now processor B is trying to read that same cache (modified by A) line from main memory. Since the content in the main memory is invalid now (because A modified the content), A's snooping the any other read attempts for that line. So in order to allow processor B (and others) to read that line, A has to write it back to main memory.
 * why not keep the data in the cache memory, and keep updating the data in the cache
@@ -144,7 +170,6 @@ It indicates that this cache line is invalid.
   In the write–back strategy, changes to the cache were not propagated back to the main memory until necessary in order to save the data.  This is more complex, but faster.
 * Access to a cache by a processor involves one of two processes: read and write.  Each process can have two results: a cache hit or a cache miss.
 
-  Recall that a cache hit occurs when the processor accesses its private cache and finds the addressed item already in the cache.  Otherwise, the access is a cache miss.
 * Each line in an individual processors cache can exist in one of the four following states:
 
       1.   Invalid           The cache line does not contain valid data.
@@ -218,7 +243,6 @@ It indicates that this cache line is invalid.
         * CPU 3 waits and then gets a correct copy.
         * The cache line in each of CPU 2 and CPU 3 is marked as Shared.
 
-* Write-through caches are simpler, but write-back has some advantages: it can filter repeated writes to the same location, and if most of the cache line changes on a write-back, it can issue one large memory transaction instead of several small ones, which is more efficient.
 * Note that the problem really is that we have multiple caches, not that we have multiple cores. We could solve the entire problem by sharing all caches between all cores: there’s only one L1$, and all processors have to share it. Each cycle, the L1$ picks one lucky core that gets to do a memory operation this cycle, and runs it.
     * This works just fine. The only problem is that it’s also slow, because cores now spend most of their time waiting in line for their next turn at a L1$ request (and processors do a lot of those, at least one for every load/store instruction)
     * We know that one set of caches works, but when that’s too slow, the next best thing is to have multiple caches and then make them behave as if there was only one cache.
@@ -233,11 +257,9 @@ It indicates that this cache line is invalid.
     * This tells all other cores to invalidate their copies of that cache line, if they have any.
     * Only once that exclusive access is granted may the core start modifying data – and at that point, the core knows that the only copies of that cache line are in its own caches, so there can’t be any conflicts.
     * Conversely, once some other core wants to read from that cache line (which we learn immediately because we’re snooping the bus), exclusive and modified cache lines have to revert back to the “shared” (S) state. In the case of modified cache lines, this also involves writing their data back to memory first.
-* As a software developer, you’ll get pretty far knowing only two things:
 
-  Firstly, in a multi-core system, getting read access to a cache line involves talking to the other cores, and might cause them to perform memory transactions.
-  Writing to a cache line is a multi-step process: before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents (a so-called “Read For Ownership” request).
-* Caches do not respond to bus events immediately. If a bus message triggering a cache line invalidation arrives while the cache is busy doing other things (sending data to the core for example), it might not get processed that cycle. Instead, it will enter a so-called “invalidation queue”, where it sits for a while until the cache has time to process it.
+
+
 
 ## false sharing
 * true sharing

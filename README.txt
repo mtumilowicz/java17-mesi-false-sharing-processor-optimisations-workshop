@@ -22,8 +22,10 @@
 ## preface
 
 ## prerequisite
-* cache hit = processor accesses its private cache and finds the addressed item already in the cache
-    * otherwise - the access is a cache miss
+* access to a cache by a processor involves one of two processes: read and write
+    * each process can have two results
+        * cache hit = processor accesses its private cache and finds the addressed item already in the cache
+        * otherwise - cache miss
 
 ## cache coherence
 * in modern CPUs (almost) all memory accesses go through the cache hierarchy
@@ -45,16 +47,43 @@
             * even if you read/write 1 byte you're writing 64 bytes
         * it’s essential to keep those overlapping caches consistent with each other
             * benefits of multithreading can disappear if the threads are competing for the same cache line
+            * note that the problem really is that we have multiple caches, not that we have multiple cores
+                * we could solve the entire problem by sharing all caches between all cores (L1)
+                    * each cycle, the L1 picks one lucky core that gets to do a memory operation this cycle, and runs it
+                        * problem: cores now spend most of their time waiting in line for their next turn at a L1 request
+                            * processors do a lot of those, at least one for every load/store instruction
+                                * slow
+                            * solution: next best thing is to have multiple caches and then make them behave as if there was only one cache
+                                * this is what cache coherency protocols are for
         * there are quite a few protocols to maintain the cache coherency between CPU cores
+        * problem is not unique to parallel processing systems
+            * strong resemblance to the "lost update" problem
         * general approach
-            * problem is not unique to parallel processing systems
-                * strong resemblance to the "lost update" problem
+            * getting read access to a cache line involves talking to the other cores
+                * might cause them to perform memory transactions
+            * writing to a cache line is a multi-step process
+                * before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents
+                    * "Read For Ownership" request
             * each line in a cache is identified and referenced by a cache tag (block number)
                 * allows the determination of the primary memory address associated with each element in the cache
             * each individual cache must monitor the traffic in cache tags
                 * corresponds to the blocks being read from and written to the shared primary memory
                 * done by a snooping cache (or snoopy cache, after the Peanuts comic strip)
-                    ![alt text](img/snoop_tags.png)
+                    * basic idea behind snooping is that all memory transactions take place on a shared bus that’s visible to all cores
+                        ![alt text](img/snoop_tags.png)
+                    * caches don’t just interact with the bus when they want to do a memory transaction themselves
+                        * instead, each cache continuously snoops on bus traffic to keep track of what the other caches are doing
+                        * if one cache wants to read from or write to memory on behalf of its core, all the other cores notice
+                            * that allows them to keep their caches synchronized
+                            * one core writes to a memory location => other cores know that their copies of the corresponding cache line are now stale and hence invalid
+                                * problem: write-back model
+                                    * it’s not enough to broadcast just the writes to memory when they happen
+                                        * physical write-back to memory can happen a long time after the core executed the corresponding store
+                                            * for the intervening time, the other cores and their caches might themselves try to write to the same location, causing a conflict
+                                    * if we want to avoid conflicts, we need to tell other cores about our intention to write before we start changing anything in our local copy
+                    * memory itself is a shared resource
+                        * memory access needs to be arbitrated
+                            * only one cache gets to read data from, or write back to, memory in any given cycle
                 * caches do not respond to bus events immediately
                     * reason: cache is busy doing other things (sending data to the core for example)
                         * it might not get processed that cycle
@@ -91,175 +120,111 @@
 
 
 ## MESI protocol
-
-* As a software developer, you’ll get pretty far knowing only two things:
-
-  Firstly, in a multi-core system, getting read access to a cache line involves talking to the other cores, and might cause them to perform memory transactions.
-  Writing to a cache line is a multi-step process: before you can write anything, you first need to acquire both exclusive ownership of the cache line and a copy of its existing contents (a so-called “Read For Ownership” request).
-
 * formal mechanism for controlling cache coherency using snooping techniques
-    * most widely used cache coherence protocol
+* most widely used cache coherence protocol
+* each line in an individual processors cache can exist in one of the four following states
+    * (M)odified
+        * result of a successful write hit on a cache line
+            * its value is different from the main memory
+        * indicates that the cache line is present in current cache only and is dirty
+            * it must be in the I state for all other cores
+        * modified line can be kept by a processor only as long as it's the only processor that has this copy
+            * on a cache miss, the cache still needs to write-back data to memory if it is in the modified state
+                * processor must signal "Dirty" and write the data back to the shared primary memory
+                    * causing the other processor to abandon its memory fetch
+            * it is necessary to first write in memory and then read it from there
+                * reading cores can't directly read from the cache of the writing core
+                    * it's more expensive
+                    * example
+                        1. suppose, both of A & B share that line and B got it directly from the cache line of A
+                        1. C needs that line for a write
+                        1. both A & B will have keep snooping that line
+                            * shared copies grows
+                            * greater impact on performance due to the snooping done by all the 'shared' processors
+            * example
+                1. let's processor A has that modified line
+                1. processor B is trying to read that same cache (modified by A) line from main memory
+                1. A's snooping read attempts for that line
+                    * content in the main memory is invalid now (because A modified the content)
+                1. A has to write it back to main memory
+                    * in order to allow processor B (and others) to read that line
+    * (E)xclusive
+        * its value matches the main memory value
+        * no other cache holds a copy of this line
+        * main purpose: prevent the unnecessary broadcast of a Cache Invalidate signal on a write hit
+            * reduces traffic on a shared bus
+    * (S)hared
+        * multiple caches may hold the line
+        * main memory is up to date
+        * if a core does not have exclusive access to a cache line when it wants to write, it first needs to send an "I want exclusive access" request to the bus
+            * this tells all other cores to invalidate their copies of that cache line, if they have any
+    * (I)nvalid
+        * cache line does not contain valid data
+        * it will reload that cache line the next time it needs to look at a value in it
+            * even if that value is perfectly current => false sharing
+* requires 2 bits per cache line to hold the state
+    * 4 values: M, E, S, I
 * transition between the states is controlled by memory accesses and bus snooping activity
+    * suppose a requesting processor processing a write hit on its cache
+        * by definition, any copy of the line in the caches of other processors must be in the Shared State
+        * what happens depends on the state of the cache in the requesting processor
+            1. Modified
+                * protocol does not specify an action for the processor
+            1. Shared
+                * processor writes the data
+                * marks the cache line as Modified
+                * broadcasts a Cache Invalidate signal to other processors
+            1. Exclusive
+                * processor writes the data and marks the cache line as Modified
+        * example
 
-* when a cache's state is Invalid (I), it will reload that cache the next time it needs
-    to look at a value in it
-        * this is true, even if that value is perfectly current
-* overview
+            |Step   |cache line A   |cache line B   |
+            |---    |---            |---            |
+            |1      |Exclusive      |-              |
+            |2      |Shared         |Shared         |
+            |3      |Invalid        |Modified       |
+            |4      |Shared         |Shared         |
 
-    |Step   |cache line A   |cache line B   |
-    |---    |---            |---            |
-    |1      |Exclusive      |-              |
-    |2      |Shared         |Shared         |
-    |2      |Invalid        |Modified       |
-    |4      |Shared         |Shared         |
-
-    1. Core A reads a value
-        * those values are brought into its cache
-        * that cache line is now tagged Exclusive
-    1. Core B reads a value from the same are of memory
-        * those values are brought into its cache, and now both
-        cache lines are re-tagged Shared
-    1. If Core B writes into that value
-        * its cache line is re-tagged Modified and Core A's cache
-        line is re-tagged Invalid
-    1. Core A tries to read a value from that same part of memory
-        * but its cache line is tagged Invalid
-        * so, Core B's cache line is forced back to memory and then Core A's
-        cache line is re-loaded from memory
-        * both cache lines are now tagged Shared
-    * this is a huge performance hit, and is referred to as False Sharing
-    * event if CoreA and CoreB are writing to separate memory locations in
-    in the same cache line the fact that they were the same cache line causes this
-    to happen
-
-* each core's L2 cache has 4 states (MESI):
-    * Modified
-        * exclusively owned by that core, and modified (dirty)
-    * Exclusive
-        * exclusively owned by that core, but not modified
-    * Shared
-        * shared read-only with other cores
-    * Invalid
-        * cache line not used
-
-
-
-* On a cache miss, the cache still needs to writeback data to memory if it is in the modified state.
-* Let's processor A has that modified line. Now processor B is trying to read that same cache (modified by A) line from main memory. Since the content in the main memory is invalid now (because A modified the content), A's snooping the any other read attempts for that line. So in order to allow processor B (and others) to read that line, A has to write it back to main memory.
-* why not keep the data in the cache memory, and keep updating the data in the cache
-    * You are right and this is what usually done. But here, that's not the case. Someone else (processor B in our example) is trying to read. So A has to write it back and make the cache line status to shared because both A and B are sharing the cache line now.
-* What I meant by not writing to the memory was that can't we do such that the cache coherence mechanism reads data from the cache of the writing core and convey it to those reading it. Is it necessary to first write in memory and then read it from there. Can't the reading cores directly read from the cache of the writing core?
-    * A modified line can be kept by a processor only as long as it's the only processor that has this copy (MESI). What you are saying can't done, because it's more expensive. Suppose, both of A & B share that line and B got it directly from the cache line of A and some one else, say C, needs that line for a write, then both A & B will have keep snooping that line. As the shared copies grows, then it will have greater impact on performance due to the snooping done by all the 'shared' processors. That's why this is not done
-    * MESI uses write-back cache to reduce the writes back to main memory whenever possible
-* So actually I don't think the reading cache has to go to main memory. In MESI, when a processor request a block modified by one of it's peers, it issue a read miss on the bus (or any interconnect medium), which is broadcasted to every processor.
-
-  The processor which hold the block in the "Modified" state catch the call, and issue a copy back on the bus - holding the block ID and the value - while changing it's own copy state to "shared". This copy back is received by the requesting processor, which will write the block in it's local cache and tag it as "shared".
-
-  It depends upon the implementation if the copy back issued by the owning processor goes to main memory, or not.
-* MESI only requires 2 bits per cache line to hold the state
-Modified –
-This indicates that the cache line is present in current cache only and is dirty i.e its value is different from the main memory. The cache is required to write the data back to main memory in future, before permitting any other read of invalid main memory state.
-Exclusive –
-This indicates that the cache line is present in current cache only and is clean i.e its value matches the main memory value.
-Shared –
-It indicates that this cache line may be stored in other caches of the machine.
-Invalid –
-It indicates that this cache line is invalid.
-* In the write–through strategy, all changes to the cache memory were immediately copied to the main memory.  In this simpler strategy, memory writes could be slow.
-
-  In the write–back strategy, changes to the cache were not propagated back to the main memory until necessary in order to save the data.  This is more complex, but faster.
-* Access to a cache by a processor involves one of two processes: read and write.  Each process can have two results: a cache hit or a cache miss.
-
-* Each line in an individual processors cache can exist in one of the four following states:
-
-      1.   Invalid           The cache line does not contain valid data.
-
-      2.   Shared           Multiple caches may hold the line; the shared memory is up to date.
-
-      3.   Exclusive      No other cache holds a copy of this line;
-                                  the shared memory is up to date.
-
-                                  The main purpose of the Exclusive state is to prevent the unnecessary broadcast of a Cache Invalidate signal on a write hit.  This reduces traffic on a shared bus.
-
-      4.   Modified       The line in this cache is valid; no copies of the line exist in
-                                  other caches; the shared memory is not up to date.
-
-                                  As a result of a successful write hit on a cache line, that cache line is always
-                                  marked as Modified.
-* Suppose a requesting processor processing a write hit on its cache.  By definition, any copy of the line in the caches of other processors must be in the Shared State.  What happens depends on the state of the cache in the requesting processor.
-
-      1.   Modified       The protocol does not specify an action for the processor.
-
-      2.   Shared           The processor writes the data, marks the cache line as Modified,
-                                  and broadcasts a Cache Invalidate signal to other processors.
-
-      3.   Exclusive      The processor writes the data and marks the cache line as Modified.
-* If a line in the cache of an individual processor is marked as “Modified” and another processor attempts to access the data copied into that cache line, the individual processor must signal “Dirty” and write the data back to the shared primary memory.
-    * Consider the following scenario, in which processor P1 has a write miss on a cache line.
-
-          1.   P1 fetches the block of memory into its cache line, writes to it, and marks it Dirty.
-
-          2.   Another processor attempts to fetch the same block from the shared main memory.
-
-          3.   P1’s snoop cache detects the memory request.  P1 broadcasts a message “Dirty” on
-                the shared bus, causing the other processor to abandon its memory fetch.
-
-          4.   P1 writes the block back to the share memory and the other processor can access it.
-
-* flow
-    1. overview of architecture
-        ![alt text](img/architecture_overview.png)
-    1. exclusive
-        ![alt text](img/pt1_exclusive.png)
-        * CPU 1
-            * is the first (and only) processor to request block A from the shared memory.
-            * It issues a BR (Bus Read) for the block and gets its copy.
-                * Neither CPU 2 nor CPU 3 respond to the BR.
-            * The cache line containing block A is marked Exclusive.
-                * Subsequent reads to this block access the cached entry and not the shared memory.
-    1. shared
-        ![alt text](img/pt2_shared.png)
-        * CPU 2 requests the same block A
-        * snoop cache on CPU 1 notes the request and CPU 1 broadcasts “Shared”, announcing that it has a copy of the block
-            * CPU 3 does not respond to the BR.
-        * Both copies of the block are marked as shared.
-            * indicates that the block is in two or more caches for reading and
-              that the copy in the shared primary memory is up to date
-    1. modified
-        ![alt text](img/pt3_modified.png)
-        * CPU 2 writes to the cache line it is holding in its cache
-            * It issues a BU (Bus Upgrade) broadcast, marks the cache line as Modified, and writes the data to the line
-            * CPU 1 responds to the BU by marking the copy in its cache line as Invalid.
-            * CPU 3 does not respond to the BU.
-        * Informally, CPU 2 can be said to “own the cache line”.
-    1. dirty
-        ![alt text](img/pt4_dirty.png)
-        * CPU 3 attempts to read block A from primary memory
-        * CPU 1, the cache line holding that block has been marked as Invalid
-            * CPU 1 does not respond to the BR (Bus Read) request.
-        * CPU 2 has the cache line marked as Modified
-            * It asserts the signal “Dirty” on the bus, writes the data in the cache line back to the shared memory, and marks the line “Shared”.
-            * Informally, CPU 2 asks CPU 3 to wait while it writes back the contents of its modified cache line to the shared primary memory.
-        * CPU 3 waits and then gets a correct copy.
-        * The cache line in each of CPU 2 and CPU 3 is marked as Shared.
-
-* Note that the problem really is that we have multiple caches, not that we have multiple cores. We could solve the entire problem by sharing all caches between all cores: there’s only one L1$, and all processors have to share it. Each cycle, the L1$ picks one lucky core that gets to do a memory operation this cycle, and runs it.
-    * This works just fine. The only problem is that it’s also slow, because cores now spend most of their time waiting in line for their next turn at a L1$ request (and processors do a lot of those, at least one for every load/store instruction)
-    * We know that one set of caches works, but when that’s too slow, the next best thing is to have multiple caches and then make them behave as if there was only one cache.
-        * This is what cache coherency protocols are for: as the name suggests, they ensure that the contents of multiple caches stay coherent.
-* The basic idea behind snooping is that all memory transactions take place on a shared bus that’s visible to all cores: the caches themselves are independent, but memory itself is a shared resource, and memory access needs to be arbitrated: only one cache gets to read data from, or write back to, memory in any given cycle. Now the idea in a snooping protocol is that the caches don’t just interact with the bus when they want to do a memory transaction themselves; instead, each cache continuously snoops on bus traffic to keep track of what the other caches are doing. So if one cache wants to read from or write to memory on behalf of its core, all the other cores notice, and that allows them to keep their caches synchronized. As soon as one core writes to a memory location, the other cores know that their copies of the corresponding cache line are now stale and hence invalid.
-    * But if there are write-back caches in the mix, this doesn’t work, since the physical write-back to memory can happen a long time after the core executed the corresponding store – and for the intervening time, the other cores and their caches are none the wiser, and might themselves try to write to the same location, causing a conflict.
-    * So with a write-back model, it’s not enough to broadcast just the writes to memory when they happen; if we want to avoid conflicts, we need to tell other cores about our intention to write before we start changing anything in our local copy.
-* Modified lines are dirty; they have been locally modified. If a line is in the M state, it must be in the I state for all other cores, same as E. In addition, modified cache lines need to be written back to memory when they get evicted or invalidated – same as the regular dirty state in a write-back cache.
-* E state denoting exclusive access. This state solves the “we need to tell other cores before we start modifying memory” problem: each core may only write to cache lines if their caches hold them in the E or M states
-    * i.e. they’re exclusively owned
-    * If a core does not have exclusive access to a cache line when it wants to write, it first needs to send an “I want exclusive access” request to the bus.
-    * This tells all other cores to invalidate their copies of that cache line, if they have any.
-    * Only once that exclusive access is granted may the core start modifying data – and at that point, the core knows that the only copies of that cache line are in its own caches, so there can’t be any conflicts.
-    * Conversely, once some other core wants to read from that cache line (which we learn immediately because we’re snooping the bus), exclusive and modified cache lines have to revert back to the “shared” (S) state. In the case of modified cache lines, this also involves writing their data back to memory first.
-
-
-
+            1. Core A reads a value
+            1. Core B reads a value from the same are of memory
+            1. Core B writes into that value
+            1. Core A tries to read a value from that same part of memory
+                * Core B's cache line is forced back to memory
+                * Core A's cache line is re-loaded from memory
+    * simulation
+        1. exclusive
+            ![alt text](img/pt1_exclusive.png)
+            * CPU 1
+                * is the first (and only) processor to request block A from the shared memory
+                * issues a BR (Bus Read) for the block and gets its copy
+                    * neither CPU 2 nor CPU 3 respond to the BR
+                * cache line containing block A is marked Exclusive
+                    * subsequent reads to this block access the cached entry and not the shared memory
+        1. shared
+            ![alt text](img/pt2_shared.png)
+            * CPU 2 requests the same block A
+            * snoop cache on CPU 1 notes the request and CPU 1 broadcasts Shared, announcing that it has a copy of the block
+                * CPU 3 does not respond to the BR
+            * both copies of the block are marked as shared
+                * indicates that the block is in two or more caches for reading
+                * copy in the shared primary memory is up to date
+        1. modified
+            ![alt text](img/pt3_modified.png)
+            * CPU 2 writes to the cache line it is holding in its cache
+                * issues a BU (Bus Upgrade) broadcast, marks the cache line as Modified, and writes the data to the line
+                * CPU 1 responds to the BU by marking the copy in its cache line as Invalid
+                * CPU 3 does not respond to the BU
+            * informally, CPU 2 can be said to "own the cache line"
+        1. dirty
+            ![alt text](img/pt4_dirty.png)
+            * CPU 3 attempts to read block A from primary memory
+            * CPU 1, the cache line holding that block has been marked as Invalid
+                * CPU 1 does not respond to the BR (Bus Read) request
+            * CPU 2 has the cache line marked as Modified
+                * asserts the signal Dirty on the bus, writes the data in the cache line back to the shared memory, and marks the line Shared
+                * informally, CPU 2 asks CPU 3 to wait while it writes back the contents of its modified cache line to the shared primary memory
+            * CPU 3 waits and then gets a correct copy
+            * The cache line in each of CPU 2 and CPU 3 is marked as Shared
 
 ## false sharing
 * true sharing

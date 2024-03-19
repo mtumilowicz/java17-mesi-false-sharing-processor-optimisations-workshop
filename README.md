@@ -32,8 +32,10 @@
         * vectorization
 * workshop plan
     * false sharing example
-    * vectorization benchmark
-    * loop order benchmark
+    * benchmarks
+        * to trigger: `gradlew jmh`
+        * vectorization
+        * loop order
 
 ## prerequisite
 * access to a cache by a processor involves one of two processes: read and write

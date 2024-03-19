@@ -1,2 +1,2 @@
-rootProject.name = "java17-jmh-false-sharing-vectorization-cacheline-mesi-workshop"
+rootProject.name = "java17-mesi-false-sharing-optimisations-workshop"
 

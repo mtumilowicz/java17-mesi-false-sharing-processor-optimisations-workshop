@@ -1,4 +1,4 @@
-# java17-mesi-false-sharing-optimisations-workshop
+# java17-mesi-false-sharing-processor-optimisations-workshop
 
 * references
     * https://jenkov.com/tutorials/java-concurrency/false-sharing.html

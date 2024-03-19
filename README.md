@@ -47,6 +47,7 @@
 * in modern CPUs (almost) all memory accesses go through the cache hierarchy
     * CPU core’s load/store (and instruction fetch) units normally can’t even access memory directly
         * physically impossible
+          
             ![alt text](img/architecture_overview.png)
         * they talk to their L1 caches
             * at this point, there’s generally more cache levels involved

@@ -300,3 +300,12 @@
 * vectorization
     * involves identifying portions of code that can be executed in parallel using SIMD instructions
     * typically involves operations like arithmetic operations, array computations, and data processing loops
+    * example: assembler on intel platform
+        * `vpadd`
+            * Vector Packed Add
+            * used for adding packed integer or floating-point values stored in SIMD registers
+            * vs `add` - typical instructions used for scalar operations
+        * `vmovdqu`
+            * Vector Move Unaligned
+            * used for moving data between memory and SIMD registers
+            * vs `mov` - typical instructions used for scalar operations

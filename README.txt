@@ -1,4 +1,4 @@
-# java17-mesi-false-sharing-vectorization-jmh-workshop
+# java17-mesi-false-sharing-optimisations-workshop
 
 * references
     * https://jenkov.com/tutorials/java-concurrency/false-sharing.html
@@ -20,6 +20,20 @@
     * https://chat.openai.com/
 
 ## preface
+* goals of these workshops
+    * understanding modern cache architecture in multi-core environment
+    * discussing cache write policies
+    * explaining cache coherence problems
+        * with presentation of most known cache coherence protocol: MESI
+    * exemplifying cache performance hits
+        * false sharing
+        * loop order
+    * showing processor optimisations
+        * vectorization
+* workshop plan
+    * false sharing example
+    * vectorization benchmark
+    * loop order benchmark
 
 ## prerequisite
 * access to a cache by a processor involves one of two processes: read and write
@@ -274,4 +288,13 @@
 * note that false sharing doesn't cause incorrect results - just a performance hit
     * updates may be lost if writes are not atomic
 
-## jmh
+## processor optimisations
+* SIMD (Single Instruction, Multiple Data)
+    * example: add four pairs of numbers together at once, rather than adding them sequentially
+    * instructions supported by modern processors
+    * allow a single instruction to operate on multiple data elements simultaneously
+        * can significantly improve performance by exploiting parallelism at the instruction level
+    * data should be aligned and contiguous in memory
+* vectorization
+    * involves identifying portions of code that can be executed in parallel using SIMD instructions
+    * typically involves operations like arithmetic operations, array computations, and data processing loops

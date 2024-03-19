@@ -5,7 +5,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.State;
 
 @State(Scope.Benchmark)
-public class MatrixMultiplierBenchmark {
+public class LoopOrderBenchmark {
     static final int SIZE = 1024;
     static int[][] ARRAY_A = new int[SIZE][SIZE];
     static int[][] ARRAY_B = new int[SIZE][SIZE];

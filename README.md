@@ -1,4 +1,4 @@
-[![Build Status](https://app.travis-ci.com/mtumilowicz/java17-mesi-false-sharing-processor-optimisations-workshop.svg&branch=main)](https://app.travis-ci.com/mtumilowicz/java17-mesi-false-sharing-processor-optimisations-workshop)
+[![Build Status](https://app.travis-ci.com/mtumilowicz/java17-mesi-false-sharing-processor-optimisations-workshop.svg?branch=main)](https://app.travis-ci.com/mtumilowicz/java17-mesi-false-sharing-processor-optimisations-workshop)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 # java17-mesi-false-sharing-processor-optimisations-workshop

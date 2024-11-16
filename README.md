@@ -21,6 +21,7 @@
     * https://fgiesen.wordpress.com/2014/07/07/cache-coherency/
     * https://github.com/melix/jmh-gradle-plugin
     * https://chat.openai.com/
+    * [308. WJUG - Maciej Przepióra - "Java Memory Model for Mere Mortals" [EN]](https://www.youtube.com/watch?v=GEVGL36rLLU)
 
 ## preface
 * goals of these workshops
@@ -109,6 +110,12 @@
                         * it might not get processed that cycle
                     * invalidation queue
                         * place where bus message triggering a cache line invalidation sits for a while until the cache has time to process it
+                     
+        * why you need `volatile` keyword in java if you have cache coherency?
+           * cache coherency ensures that all threads eventually see the change
+              * no guarantee about when this happens
+           * `volatile` works also on higher level of abstraction
+              * introduces happens-before relationships around reads and writes
 * cache write policies
     * write back
         * write operations are usually made only to the cache
